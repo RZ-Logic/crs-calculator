@@ -58,6 +58,12 @@
   .clbtag{position:absolute;right:10px;top:31px;font-family:"IBM Plex Mono";font-size:.7rem;
     font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 7px;border-radius:6px;pointer-events:none}
   .abil select{padding-right:13px}
+  .abil input[type=number]{padding-right:66px}
+  /* remove native number spinners: they collide with the CLB pill and render
+     inconsistently across browsers. Values are typed and snapped on blur. */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  input[type=number]{-moz-appearance:textfield;appearance:textfield}
   .check{display:flex;align-items:flex-start;gap:11px;padding:13px 14px;background:var(--paper);
     border:1px solid var(--line);border-radius:9px;cursor:pointer;margin-bottom:10px;transition:.15s}
   .check:hover{border-color:var(--accent)}
@@ -419,10 +425,15 @@
   }
   function setBar(id,v,m){ $(id).style.width=Math.min(100,(v/m)*100)+'%'; }
 
-  /* tell the parent page (Framer iframe) our height so it can auto-resize */
+  /* tell the parent page (Framer iframe) our height so it can auto-resize.
+     Measure the content wrapper, not documentElement: once an iframe is sized
+     tall, documentElement.getBoundingClientRect reports the iframe viewport
+     height and the value can never shrink back down (it ratchets up and leaves
+     blank space at wide widths). The .wrap bottom is the true content height. */
   function postHeight(){
     if(window.parent===window)return;
-    var h=Math.ceil(document.documentElement.getBoundingClientRect().height);
+    var wrap=document.querySelector('.wrap');
+    var h=wrap?Math.ceil(wrap.getBoundingClientRect().bottom)+2:document.body.scrollHeight;
     window.parent.postMessage({type:'velocyt-crs-height',height:h},'*');
   }
 
@@ -489,17 +500,33 @@
   $('marital').addEventListener('change',function(){
     $('spouseBlock').classList.toggle('open',this.value==='spouse'); render();
   });
+  /* snap typed numbers to valid values on blur: integers for age, CELPIP and
+     PTE, half-steps for IELTS, each clamped to the field's own min and max.
+     HTML number inputs accept any decimal regardless of step, so without this
+     the field would accept impossible scores like IELTS 7.1 or age 29.5. */
+  function snapField(el){
+    if(!el||el.type!=='number'||el.value==='')return;
+    var v=parseFloat(el.value); if(isNaN(v)){el.value='';return;}
+    var min=el.min!==''?parseFloat(el.min):-Infinity;
+    var max=el.max!==''?parseFloat(el.max):Infinity;
+    var step=(el.step&&el.step!=='any')?parseFloat(el.step):1; if(!step||step<=0)step=1;
+    v=Math.round(v/step)*step;
+    if(v<min)v=min; if(v>max)v=max;
+    el.value=v.toFixed(step%1!==0?1:0);
+  }
   $('form').addEventListener('input',render);
-  $('form').addEventListener('change',render);
+  $('form').addEventListener('change',function(e){ snapField(e.target); render(); });
 
   buildLang('langAbilities','langTest','ab');
   buildLang('sLangAbilities','sLangTest','sab');
   updateLangHint();
   render();
 
-  /* auto-resize plumbing */
+  /* auto-resize plumbing: observe the content wrapper (not body) so the height
+     recalculates correctly when the layout reflows between one and two columns */
   window.addEventListener('load',postHeight);
-  if('ResizeObserver' in window){ try{ new ResizeObserver(postHeight).observe(document.body); }catch(e){} }
+  window.addEventListener('resize',postHeight);
+  if('ResizeObserver' in window){ try{ var _w=document.querySelector('.wrap'); if(_w) new ResizeObserver(postHeight).observe(_w); }catch(e){} }
 })();
 </script>
 </body>
